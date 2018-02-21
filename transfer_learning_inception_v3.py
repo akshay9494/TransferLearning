@@ -9,6 +9,20 @@ from keras.callbacks import ModelCheckpoint, TensorBoard
 import time
 import multiprocessing
 import json
+import logging
+from keras.utils import multi_gpu_model
+
+# TODO:-
+# 1. update all hard coded values to be read from configuration files
+# 2. Add multi_gpu_model from keras, to make it ready for production
+# 3. Add documentation
+
+
+LOGGER = logging.getLogger(__name__)
+LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lineno) -5d: %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format=LOG_FORMAT,
+                    filename='transfer_learning_logs.log')
 
 
 class TransferLearning(object):
@@ -34,6 +48,7 @@ class TransferLearning(object):
 
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
+        self.num_gpus = 1
 
 
     def __unfreeze_layers_in_model(self):
@@ -117,11 +132,11 @@ class TransferLearning(object):
         else:
             learning_rate = 0.0001
 
-        self.model.compile(loss='categorical_crossentropy',
+        self.parallel_model.compile(loss='categorical_crossentropy',
                            optimizer=optimizers.RMSprop(lr=learning_rate),
                            metrics=['acc'])
 
-        history = self.model.fit_generator(self.train_generator,
+        history = self.parallel_model.fit_generator(self.train_generator,
                                            steps_per_epoch=self.steps_per_epoch,
                                            epochs=self.epochs,
                                            validation_data=self.validation_generator,
@@ -132,6 +147,8 @@ class TransferLearning(object):
         # self.plot(history)
 
 
+    def __make_model_parallel(self):
+        self.parallel_model = multi_gpu_model(self.model, gpus=self.num_gpus)
 
 
     def __create_model(self):
@@ -178,6 +195,7 @@ class TransferLearning(object):
         self.__freeze_conv_base()
         # transfer learn with frozen conv base
         self.__create_generators()
+        self.__make_model_parallel()
         self.__train_model()
         # unfreeze conv base layers
         self.__unfreeze_layers_in_model()
