@@ -10,6 +10,7 @@ import time
 import multiprocessing
 import json
 import logging
+import tensorflow as tf
 from keras.utils import multi_gpu_model
 
 # TODO:-
@@ -84,16 +85,18 @@ class TransferLearning(object):
 
 
     def __create_conv_base(self):
-        self.conv_base = InceptionV3(weights='imagenet',
+        conv_base = InceptionV3(weights='imagenet',
                                      include_top=False,
                                      input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
         # self.conv_base.summary()
+        return conv_base
 
 
-    def __freeze_conv_base(self):
-        print('Number of trainable weights before freezing the conv base: {}'.format(len(self.model.trainable_weights)))
-        self.conv_base.trainable = False
-        print('Number of trainable weights after freezing the conv base: {}'.format(len(self.model.trainable_weights)))
+    def __freeze_conv_base(self, model, conv_base):
+        print('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
+        conv_base.trainable = False
+        print('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
+        return model, conv_base
 
 
     def __create_generators(self):
@@ -126,17 +129,17 @@ class TransferLearning(object):
 
 
 
-    def __train_model(self, fine_tuning=False):
+    def __train_model(self, model, fine_tuning=False):
         if fine_tuning:
             learning_rate = 0.00001
         else:
             learning_rate = 0.0001
 
-        self.parallel_model.compile(loss='categorical_crossentropy',
+        model.compile(loss='categorical_crossentropy',
                            optimizer=optimizers.RMSprop(lr=learning_rate),
                            metrics=['acc'])
 
-        history = self.parallel_model.fit_generator(self.train_generator,
+        history = model.fit_generator(self.train_generator,
                                            steps_per_epoch=self.steps_per_epoch,
                                            epochs=self.epochs,
                                            validation_data=self.validation_generator,
@@ -145,19 +148,19 @@ class TransferLearning(object):
                                            workers=self.cpu_count)
 
         # self.plot(history)
+        model.save('model.h5')
+        model.save_weights('model_weights.h5')
 
 
-    def __make_model_parallel(self):
-        self.parallel_model = multi_gpu_model(self.model, gpus=self.num_gpus)
 
-
-    def __create_model(self):
-        self.model = models.Sequential()
-        self.model.add(self.conv_base)
-        self.model.add(layers.GlobalAveragePooling2D())
-        self.model.add(layers.Dense(1024, activation='relu'))
-        self.model.add(layers.Dense(self.NUM_CLASSES, activation='softmax'))
-        self.model.summary()
+    def __create_model(self, conv_base):
+        model = models.Sequential()
+        model.add(conv_base)
+        model.add(layers.GlobalAveragePooling2D())
+        model.add(layers.Dense(1024, activation='relu'))
+        model.add(layers.Dense(self.NUM_CLASSES, activation='softmax'))
+        model.summary()
+        return model
 
 
     def __plot(self, history):
@@ -182,25 +185,34 @@ class TransferLearning(object):
         plt.show()
 
 
+    def __build_model(self):
+        # create conv base
+        print('Creating Inception V3 conv base')
+        conv_base = self.__create_conv_base()
+        # create model with conv_base
+        model = self.__create_model(conv_base)
+        # freeze conv base layers
+        model, conv_base = self.__freeze_conv_base(model, conv_base)
+        return model, conv_base
+
+
     def begin_training(self):
         # calculate training essentials
         print('Calulating num_classes, samples, creating model directory, etc...')
         self.__training_essentials()
-        # create conv base
-        print('Creating Inception V3 conv base')
-        self.__create_conv_base()
-        # create model with conv_base
-        self.__create_model()
-        # freeze conv base layers
-        self.__freeze_conv_base()
+        if self.num_gpus <= 1:
+            model, conv_base = self.__build_model()
+        else:
+            with tf.device("/cpu:0"):
+                model, conv_base = self.__build_model()
+            model = multi_gpu_model(model, gpus=self.num_gpus)
         # transfer learn with frozen conv base
         self.__create_generators()
-        self.__make_model_parallel()
-        self.__train_model()
+        self.__train_model(model)
         # unfreeze conv base layers
-        self.__unfreeze_layers_in_model()
-        # fine tune with unfrozen layers
-        self.__train_model(fine_tuning=True)
+        # self.__unfreeze_layers_in_model()
+        # # fine tune with unfrozen layers
+        # self.__train_model(fine_tuning=True)
 
 
 
