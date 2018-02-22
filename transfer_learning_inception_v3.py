@@ -40,8 +40,10 @@ class TransferLearning(object):
         self.tensorboard_logs_dir = 'tensorboard_logs'
         self.model_name = 'tl_dog_breed_inceptionv3.{epoch:02d}-{val_loss:.2f}.hdf5'
         self.tensorboard_logs_name = "tl_dog_breed_inceptionv3_{}".format(time.time())
-        self.cpu_count = multiprocessing.cpu_count()
+        self.cpu_count = 8      #multiprocessing.cpu_count()
+        self.FC_SIZE = 1024
         self.fraction_to_unfreeze_while_fine_tuning = 0.4
+        self.num_layers_to_freeze_while_fine_tuning = 172
         self.checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_driectory,
                                                            self.model_name),
                                           monitor='val_loss',
@@ -52,15 +54,15 @@ class TransferLearning(object):
         self.num_gpus = 1
 
 
-    def __unfreeze_layers_in_model(self):
-        self.conv_base.trainable = True
+    def __unfreeze_layers_in_model(self, conv_base):
+        conv_base.trainable = True
 
-        num_layers = len(self.conv_base.layers)
-        NB_IV3_LAYERS_TO_FREEZE = num_layers - int(self.fraction_to_unfreeze_while_fine_tuning * num_layers)
+        # num_layers = len(conv_base.layers)
+        # NB_IV3_LAYERS_TO_FREEZE = num_layers - int(self.fraction_to_unfreeze_while_fine_tuning * num_layers)
 
-        for layer in self.conv_base.layers[:NB_IV3_LAYERS_TO_FREEZE]:
+        for layer in conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
             layer.trainable = False
-        for layer in self.conv_base.layers[NB_IV3_LAYERS_TO_FREEZE:]:
+        for layer in conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
             layer.trainable = True
 
         print('Number of trainable weights after unfreezing the conv base: {}'.format(len(self.conv_base.trainable_weights)))
@@ -157,7 +159,7 @@ class TransferLearning(object):
         model = models.Sequential()
         model.add(conv_base)
         model.add(layers.GlobalAveragePooling2D())
-        model.add(layers.Dense(1024, activation='relu'))
+        model.add(layers.Dense(self.FC_SIZE, activation='relu'))
         model.add(layers.Dense(self.NUM_CLASSES, activation='softmax'))
         model.summary()
         return model
