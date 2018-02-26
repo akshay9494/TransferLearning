@@ -62,7 +62,7 @@ class TransferLearning(object):
 
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
-        self.num_gpus = 1
+        self.num_gpus = int(config['MODELLING']['num_gpus'])
 
 
     def __unfreeze_layers_in_model(self, model, conv_base):
