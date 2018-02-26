@@ -47,7 +47,7 @@ class TransferLearning(object):
         self.checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_driectory,
                                                            self.model_name),
                                           monitor='val_loss',
-                                          save_best_only=True)
+                                          save_best_only=True, save_weights_only=True)
 
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
@@ -162,10 +162,10 @@ class TransferLearning(object):
 
         # self.plot(history)
         if fine_tuning:
-            model.save('model_after_fine_tuning.h5')
+            # model.save('model_after_fine_tuning.h5')
             model.save_weights('model_weights_after_fine_tuning.h5')
         else:
-            model.save('model_after_transfer_learning.h5')
+            # model.save('model_after_transfer_learning.h5')
             model.save_weights('model_weights_after_transfer_learning.h5')
         return model
 
