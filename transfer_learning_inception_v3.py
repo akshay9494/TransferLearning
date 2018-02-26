@@ -12,18 +12,26 @@ import json
 import logging
 import tensorflow as tf
 from keras.utils import multi_gpu_model
+import configparser
+
 
 # TODO:-
 # 1. update all hard coded values to be read from configuration files
 # 2. Add multi_gpu_model from keras, to make it ready for production
 # 3. Add documentation
 
+config = configparser.ConfigParser()
+basepath = os.path.dirname(__file__)
+config.read(os.path.abspath(os.path.join(basepath, 'configurations.ini')))
 
 LOGGER = logging.getLogger(__name__)
 LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lineno) -5d: %(message)s')
-logging.basicConfig(level=logging.INFO,
-                    format=LOG_FORMAT,
-                    filename='transfer_learning_logs.log')
+if bool(config['LOGGING']['log_to_file']) == True:
+    logging.basicConfig(level=logging.INFO,
+                    format=LOG_FORMAT, filename='transfer_learning_logs.log')
+else:
+    logging.basicConfig(level=logging.INFO,
+                        format=LOG_FORMAT)
 
 
 class TransferLearning(object):
@@ -32,26 +40,25 @@ class TransferLearning(object):
         self.train_dir = train_dir
         self.val_dir = val_dir
         self.datagen = ImageDataGenerator(rescale=1./255)
-        self.batch_size = 64
-        self.IM_WIDTH = 299
-        self.IM_HEIGHT = 299
-        self.epochs = 1
-        self.model_driectory = 'models'
-        self.tensorboard_logs_dir = 'tensorboard_logs'
+        self.batch_size = int(config['MODELLING']['batch_size'])
+        self.IM_WIDTH = int(config['MODELLING']['im_width'])
+        self.IM_HEIGHT = int(config['MODELLING']['im_height'])
+        self.epochs = int(config['MODELLING']['epochs'])
+        self.model_driectory = config['MODELLING']['model_directory']
+        self.tensorboard_logs_dir = config['MODELLING']['tensorboard_logs_dir']
         self.model_name = 'tl_inceptionv3.{epoch:02d}-{val_loss:.2f}.hdf5'
         self.tensorboard_logs_name = "tl_inceptionv3_{}".format(time.time())
-        self.cpu_count = 8      # multiprocessing.cpu_count()
-        self.FC_SIZE = 1024
-        self.fraction_to_unfreeze_while_fine_tuning = 0.4
-        self.num_layers_to_freeze_while_fine_tuning = 172
+        self.cpu_count = int(config['MODELLING']['cpu_count'])      # multiprocessing.cpu_count()
+        self.FC_SIZE = int(config['MODELLING']['last_layer_fc_size'])
+        # self.fraction_to_unfreeze_while_fine_tuning = 0.4
+        self.num_layers_to_freeze_while_fine_tuning = int(config['MODELLING']['num_layers_to_freeze_while_fine_tuning'])
         self.checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_driectory,
                                                            self.model_name),
-                                          monitor='val_loss',
+                                          monitor=config['MODEL_CHECKPOINT']['monitor'],
                                           save_best_only=True, save_weights_only=True)
 
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
-        self.remote = RemoteMonitor()
         self.num_gpus = 1
 
 
@@ -60,7 +67,7 @@ class TransferLearning(object):
 
         # num_layers = len(conv_base.layers)
         # NB_IV3_LAYERS_TO_FREEZE = num_layers - int(self.fraction_to_unfreeze_while_fine_tuning * num_layers)
-        print('Number of trainable weights before unfreezing the conv base in model: {}'.format(
+        LOGGER.info('Number of trainable weights before unfreezing the conv base in model: {}'.format(
             len(model.trainable_weights)))
 
         for layer in conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
@@ -68,17 +75,17 @@ class TransferLearning(object):
         for layer in conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
             layer.trainable = True
 
-        # print('Number of trainable weights after unfreezing the conv base: {}'.format(len(conv_base.trainable_weights)))
-        print('Number of trainable weights after unfreezing the conv base in model: {}'.format(len(model.trainable_weights)))
+        # LOGGER.info('Number of trainable weights after unfreezing the conv base: {}'.format(len(conv_base.trainable_weights)))
+        LOGGER.info('Number of trainable weights after unfreezing the conv base in model: {}'.format(len(model.trainable_weights)))
 
         return model
 
 
     def __freeze_conv_base(self, model, conv_base):
-        print('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
+        LOGGER.info('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
         for layer in conv_base.layers:
             layer.trainable = False
-        print('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
+        LOGGER.info('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
         return model, conv_base
 
 
@@ -132,11 +139,11 @@ class TransferLearning(object):
                                                                      target_size=(self.IM_HEIGHT, self.IM_WIDTH),
                                                                      batch_size=self.batch_size)
 
-        print('Saving train generator class indices...')
+        LOGGER.info('Saving train generator class indices...')
         with open('train_class_indices.json', 'w') as fp:
             json.dump(self.train_generator.class_indices, fp)
 
-        print('Saving val generator class indices...')
+        LOGGER.info('Saving val generator class indices...')
         with open('val_class_indices.json', 'w') as fp:
             json.dump(self.validation_generator.class_indices, fp)
 
@@ -205,7 +212,7 @@ class TransferLearning(object):
 
     def __build_model(self):
         # create conv base
-        print('Creating Inception V3 conv base')
+        LOGGER.info('Creating Inception V3 conv base')
         conv_base = self.__create_conv_base()
         # create model with conv_base
         model = self.__create_model(conv_base)
@@ -216,7 +223,7 @@ class TransferLearning(object):
 
     def begin_training(self):
         # calculate training essentials
-        print('Calulating num_classes, samples, creating model directory, etc...')
+        LOGGER.info('Calulating num_classes, samples, creating model directory, etc...')
         self.__training_essentials()
         self.__create_generators()
         if self.num_gpus <= 1:
@@ -241,6 +248,10 @@ class TransferLearning(object):
 
 
 if __name__ == '__main__':
-    tl_instance = TransferLearning(train_dir='D:\\Python Projects\\Projects\\Dog Breed Identification\\TransferLearning\\dog_breeds_train_val_split\\train',
-                                   val_dir='D:\\Python Projects\\Projects\\Dog Breed Identification\\TransferLearning\\dog_breeds_train_val_split\\val')
-    tl_instance.begin_training()
+    try:
+        tl_instance = TransferLearning(train_dir=config['FILEPATHS']['train_dir'],
+                                       val_dir=config['FILEPATHS']['val_dir'])
+        LOGGER.info('Beginning Training Process')
+        tl_instance.begin_training()
+    except Exception as e:
+        LOGGER.error(e, exc_info=True)
