@@ -30,7 +30,8 @@ LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lin
 check = config['LOGGING']['log_to_file']
 if check.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
     logging.basicConfig(level=logging.INFO,
-                    format=LOG_FORMAT, filename='transfer_learning_logs.log')
+                    format=LOG_FORMAT, filename=os.path.join(config['LOGGING']['log_file_dir'],
+                                                             config['LOGGING']['log_file_name']))
 else:
     logging.basicConfig(level=logging.INFO,
                         format=LOG_FORMAT)

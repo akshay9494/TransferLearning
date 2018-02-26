@@ -1,11 +1,15 @@
 import configparser
 import socket
 import uuid
+import os
+
+basepath = os.path.dirname(__file__)
 
 config = configparser.ConfigParser()
 
 config['LOGGING'] = {}
 config['LOGGING']['log_to_file'] = 'False'
+config['LOGGING']['log_file_dir'] = 'D:\\Akshay\'s Git\\TransferLearning\\logs'
 config['LOGGING']['log_file_name'] = 'Transfer_Learning_' + socket.gethostname() + '_' + str(uuid.uuid4()) + '.log'
 
 config['MODELLING'] = {}
