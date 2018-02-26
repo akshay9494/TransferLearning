@@ -26,7 +26,9 @@ config.read(os.path.abspath(os.path.join(basepath, 'configurations.ini')))
 
 LOGGER = logging.getLogger(__name__)
 LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lineno) -5d: %(message)s')
-if bool(config['LOGGING']['log_to_file']) == True:
+
+check = config['LOGGING']['log_to_file']
+if check.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
     logging.basicConfig(level=logging.INFO,
                     format=LOG_FORMAT, filename='transfer_learning_logs.log')
 else:
