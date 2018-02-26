@@ -5,7 +5,7 @@ from keras.applications.inception_v3 import InceptionV3
 from keras import models, layers, optimizers
 import glob
 import matplotlib.pyplot as plt
-from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.callbacks import ModelCheckpoint, TensorBoard, RemoteMonitor
 import time
 import multiprocessing
 import json
@@ -35,12 +35,12 @@ class TransferLearning(object):
         self.batch_size = 64
         self.IM_WIDTH = 299
         self.IM_HEIGHT = 299
-        self.epochs = 30
+        self.epochs = 1
         self.model_driectory = 'models'
         self.tensorboard_logs_dir = 'tensorboard_logs'
-        self.model_name = 'tl_dog_breed_inceptionv3.{epoch:02d}-{val_loss:.2f}.hdf5'
-        self.tensorboard_logs_name = "tl_dog_breed_inceptionv3_{}".format(time.time())
-        self.cpu_count = 8      #multiprocessing.cpu_count()
+        self.model_name = 'tl_inceptionv3.{epoch:02d}-{val_loss:.2f}.hdf5'
+        self.tensorboard_logs_name = "tl_inceptionv3_{}".format(time.time())
+        self.cpu_count = 8      # multiprocessing.cpu_count()
         self.FC_SIZE = 1024
         self.fraction_to_unfreeze_while_fine_tuning = 0.4
         self.num_layers_to_freeze_while_fine_tuning = 172
@@ -51,21 +51,35 @@ class TransferLearning(object):
 
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
+        self.remote = RemoteMonitor()
         self.num_gpus = 1
 
 
-    def __unfreeze_layers_in_model(self, conv_base):
-        conv_base.trainable = True
+    def __unfreeze_layers_in_model(self, model, conv_base):
+        # conv_base.trainable = True
 
         # num_layers = len(conv_base.layers)
         # NB_IV3_LAYERS_TO_FREEZE = num_layers - int(self.fraction_to_unfreeze_while_fine_tuning * num_layers)
+        print('Number of trainable weights before unfreezing the conv base in model: {}'.format(
+            len(model.trainable_weights)))
 
         for layer in conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
             layer.trainable = False
         for layer in conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
             layer.trainable = True
 
-        print('Number of trainable weights after unfreezing the conv base: {}'.format(len(self.conv_base.trainable_weights)))
+        # print('Number of trainable weights after unfreezing the conv base: {}'.format(len(conv_base.trainable_weights)))
+        print('Number of trainable weights after unfreezing the conv base in model: {}'.format(len(model.trainable_weights)))
+
+        return model
+
+
+    def __freeze_conv_base(self, model, conv_base):
+        print('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
+        for layer in conv_base.layers:
+            layer.trainable = False
+        print('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
+        return model, conv_base
 
 
     def __count_number_of_files(self, root_directory):
@@ -87,18 +101,15 @@ class TransferLearning(object):
 
 
     def __create_conv_base(self):
-        conv_base = InceptionV3(weights='imagenet',
-                                     include_top=False,
-                                     input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
+        conv_base = InceptionV3(weights=None,
+                                    include_top=False,
+                                    input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
         # self.conv_base.summary()
+        conv_base.load_weights('inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5')
         return conv_base
 
 
-    def __freeze_conv_base(self, model, conv_base):
-        print('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
-        conv_base.trainable = False
-        print('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
-        return model, conv_base
+
 
 
     def __create_generators(self):
@@ -150,8 +161,13 @@ class TransferLearning(object):
                                            workers=self.cpu_count)
 
         # self.plot(history)
-        model.save('model.h5')
-        model.save_weights('model_weights.h5')
+        if fine_tuning:
+            model.save('model_after_fine_tuning.h5')
+            model.save_weights('model_weights_after_fine_tuning.h5')
+        else:
+            model.save('model_after_transfer_learning.h5')
+            model.save_weights('model_weights_after_transfer_learning.h5')
+        return model
 
 
 
@@ -202,19 +218,25 @@ class TransferLearning(object):
         # calculate training essentials
         print('Calulating num_classes, samples, creating model directory, etc...')
         self.__training_essentials()
+        self.__create_generators()
         if self.num_gpus <= 1:
             model, conv_base = self.__build_model()
+            # transfer learn with frozen conv base
+            model = self.__train_model(model)
+            # unfreeze conv base layers
+            model = self.__unfreeze_layers_in_model(model, conv_base)
+            # # fine tune with unfrozen layers
+            model = self.__train_model(model, fine_tuning=True)
         else:
             with tf.device("/cpu:0"):
                 model, conv_base = self.__build_model()
-            model = multi_gpu_model(model, gpus=self.num_gpus)
-        # transfer learn with frozen conv base
-        self.__create_generators()
-        self.__train_model(model)
-        # unfreeze conv base layers
-        # self.__unfreeze_layers_in_model()
-        # # fine tune with unfrozen layers
-        # self.__train_model(fine_tuning=True)
+            parallel_model = multi_gpu_model(model, gpus=self.num_gpus)
+            # transfer learn with frozen conv base
+            parallel_model = self.__train_model(parallel_model)
+            # unfreeze conv base layers
+            parallel_model = self.__unfreeze_layers_in_model(parallel_model, conv_base)
+            # # fine tune with unfrozen layers
+            parallel_model = self.__train_model(parallel_model, fine_tuning=True)
 
 
 
