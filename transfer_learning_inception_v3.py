@@ -115,7 +115,7 @@ class TransferLearning(object):
                                     include_top=False,
                                     input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
         # self.conv_base.summary()
-        conv_base.load_weights('inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5')
+        conv_base.load_weights(config['MODELLING']['model_path'])
         return conv_base
 
 

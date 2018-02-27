@@ -18,12 +18,13 @@ config['MODELLING']['batch_size'] = "64"
 config['MODELLING']['im_width'] = "299"
 config['MODELLING']['im_height'] = "299"
 config['MODELLING']['epochs'] = "50"
-config['MODELLING']['model_directory'] = 'models'
-config['MODELLING']['tensorboard_logs_dir'] = 'tensorboard_logs'
+config['MODELLING']['model_directory'] = "D:\\Akshay\'s Git\\TransferLearning\\models"
+config['MODELLING']['tensorboard_logs_dir'] = "D:\\Akshay\'s Git\\TransferLearning\\tensorboard_logs"
 config['MODELLING']['cpu_count'] = "8"
 config['MODELLING']['last_layer_fc_size'] = "1024"
 config['MODELLING']['num_layers_to_freeze_while_fine_tuning'] = "172"
 config['MODELLING']['num_gpus'] = "1"
+config['MODELLING']['model_path'] = "D:\\Akshay\'s Git\\TransferLearning\\inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5"
 
 config['MODEL_CHECKPOINT'] = {}
 
