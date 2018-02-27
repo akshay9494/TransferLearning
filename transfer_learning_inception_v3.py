@@ -110,12 +110,14 @@ class TransferLearning(object):
         # batch size and amount of augmented sample you want to give (it can also be num_train_samples//batch-size)
 
 
-    def __create_conv_base(self):
+    def __create_conv_base(self, transfer_learn=True):
         conv_base = InceptionV3(weights=None,
                                     include_top=False,
                                     input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
         # self.conv_base.summary()
-        conv_base.load_weights(config['MODELLING']['model_path'])
+        if transfer_learn:
+            LOGGER.info('Loading InceptionV3 weights for transfer learning')
+            conv_base.load_weights(config['MODELLING']['model_path'])
         return conv_base
 
 
@@ -213,10 +215,10 @@ class TransferLearning(object):
         plt.show()
 
 
-    def __build_model(self):
+    def __build_model(self, transfer_learn=True):
         # create conv base
         LOGGER.info('Creating Inception V3 conv base')
-        conv_base = self.__create_conv_base()
+        conv_base = self.__create_conv_base(transfer_learn=transfer_learn)
         # create model with conv_base
         model = self.__create_model(conv_base)
         # freeze conv base layers
@@ -229,24 +231,31 @@ class TransferLearning(object):
         LOGGER.info('Calulating num_classes, samples, creating model directory, etc...')
         self.__training_essentials()
         self.__create_generators()
+        check_tl = config['MODELLING']['train_from_scratch']
+        if check_tl.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
+            check_tl = False
+        else:
+            check_tl = True
         if self.num_gpus <= 1:
-            model, conv_base = self.__build_model()
+            model, conv_base = self.__build_model(transfer_learn=check_tl)
             # transfer learn with frozen conv base
             model = self.__train_model(model)
-            # unfreeze conv base layers
-            model = self.__unfreeze_layers_in_model(model, conv_base)
-            # # fine tune with unfrozen layers
-            model = self.__train_model(model, fine_tuning=True)
+            if check_tl:
+                # unfreeze conv base layers
+                model = self.__unfreeze_layers_in_model(model, conv_base)
+                # # fine tune with unfrozen layers
+                model = self.__train_model(model, fine_tuning=True)
         else:
             with tf.device("/cpu:0"):
-                model, conv_base = self.__build_model()
+                model, conv_base = self.__build_model(transfer_learn=check_tl)
             parallel_model = multi_gpu_model(model, gpus=self.num_gpus)
             # transfer learn with frozen conv base
             parallel_model = self.__train_model(parallel_model)
-            # unfreeze conv base layers
-            parallel_model = self.__unfreeze_layers_in_model(parallel_model, conv_base)
-            # # fine tune with unfrozen layers
-            parallel_model = self.__train_model(parallel_model, fine_tuning=True)
+            if check_tl:
+                # unfreeze conv base layers
+                parallel_model = self.__unfreeze_layers_in_model(parallel_model, conv_base)
+                # # fine tune with unfrozen layers
+                parallel_model = self.__train_model(parallel_model, fine_tuning=True)
 
 
 
