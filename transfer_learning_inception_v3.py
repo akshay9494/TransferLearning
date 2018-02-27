@@ -175,10 +175,10 @@ class TransferLearning(object):
         # self.plot(history)
         if fine_tuning:
             # model.save('model_after_fine_tuning.h5')
-            model.save_weights('model_weights_after_fine_tuning.h5')
+            model.save_weights(os.path.join(self.model_driectory ,'model_weights_after_fine_tuning.h5'))
         else:
             # model.save('model_after_transfer_learning.h5')
-            model.save_weights('model_weights_after_transfer_learning.h5')
+            model.save_weights(os.path.join(self.model_driectory, 'model_weights_after_transfer_learning.h5'))
         return model
 
 
