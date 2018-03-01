@@ -13,7 +13,9 @@ config['LOGGING']['log_file_dir'] = 'D:\\Akshay\'s Git\\TransferLearning\\logs'
 config['LOGGING']['log_file_name'] = 'Transfer_Learning_' + socket.gethostname() + '_' + str(uuid.uuid4()) + '.log'
 
 config['MODELLING'] = {}
-config['MODELLING']['train_from_scratch'] = "False"
+config['MODELLING']['train_from_scratch'] = "True"
+config['MODELLING']['load_weights_of_previous_model'] = "True"
+config['MODELLING']['weights_of_previous_model'] = "D:\\Akshay's Git\\TransferLearning\\models\\tl_inceptionv3.03-0.88.hdf5"
 config['MODELLING']['batch_size'] = "64"
 config['MODELLING']['im_width'] = "299"
 config['MODELLING']['im_height'] = "299"
