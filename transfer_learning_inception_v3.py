@@ -137,7 +137,8 @@ class TransferLearning(object):
         self.batch_size = int(config['MODELLING']['batch_size'])
         self.IM_WIDTH = int(config['MODELLING']['im_width'])
         self.IM_HEIGHT = int(config['MODELLING']['im_height'])
-        self.epochs = int(config['MODELLING']['epochs'])
+        self.tl_epochs = int(config['MODELLING']['tl_epochs'])
+        self.ft_epochs = int(config['MODELLING']['ft_epochs'])
         self.model_directory = config['MODELLING']['model_directory']
         self.tensorboard_logs_dir = config['MODELLING']['tensorboard_logs_dir']
         self.tl_model_name = 'transfer_learning_inceptionv3_epoch_{epoch:02d}_val_loss_{val_loss:.2f}.h5'
@@ -261,7 +262,7 @@ class TransferLearning(object):
 
         history = self.model.fit_generator(self.train_generator,
                                           steps_per_epoch=self.steps_per_epoch,
-                                          epochs=self.epochs,
+                                          epochs=self.tl_epochs,
                                           validation_data=self.validation_generator,
                                           validation_steps=self.validation_steps,
                                           callbacks=[self.tensorboard, self.custom_logger,
@@ -289,7 +290,7 @@ class TransferLearning(object):
 
         history = self.model.fit_generator(self.train_generator,
                                           steps_per_epoch=self.steps_per_epoch,
-                                          epochs=self.epochs,
+                                          epochs=self.ft_epochs,
                                           validation_data=self.validation_generator,
                                           validation_steps=self.validation_steps,
                                           callbacks=[self.tensorboard, self.custom_logger,
@@ -320,7 +321,7 @@ class TransferLearning(object):
 
         history = model.fit_generator(self.train_generator,
                                       steps_per_epoch=self.steps_per_epoch,
-                                      epochs=self.epochs,
+                                      epochs=self.tl_epochs,
                                       validation_data=self.validation_generator,
                                       validation_steps=self.validation_steps,
                                       callbacks=[self.tensorboard, self.custom_logger,
@@ -350,7 +351,7 @@ class TransferLearning(object):
 
         history = model.fit_generator(self.train_generator,
                                       steps_per_epoch=self.steps_per_epoch,
-                                      epochs=self.epochs,
+                                      epochs=self.ft_epochs,
                                       validation_data=self.validation_generator,
                                       validation_steps=self.validation_steps,
                                       callbacks=[self.tensorboard, self.custom_logger,
