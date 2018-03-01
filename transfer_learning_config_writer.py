@@ -27,6 +27,12 @@ config['MODELLING']['last_layer_fc_size'] = "1024"
 config['MODELLING']['num_layers_to_freeze_while_fine_tuning'] = "172"
 config['MODELLING']['num_gpus'] = "1"
 config['MODELLING']['model_path'] = "D:\\Akshay\'s Git\\TransferLearning\\inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5"
+config['MODELLING']['transfer_learning_learning_rate'] = "0.0001"
+config['MODELLING']['fine_tuning_learning_rate'] = "0.00001"
+config['MODELLING']['training_essentials_folder'] = "D:\\Akshay\'s Git\\TransferLearning\\training_essentials"
+if not os.path.isdir(config['MODELLING']['training_essentials_folder']):
+    os.makedirs(config['MODELLING']['training_essentials_folder'])
+
 
 config['MODEL_CHECKPOINT'] = {}
 

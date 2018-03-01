@@ -6,13 +6,14 @@ from keras import models, layers, optimizers
 import glob
 import matplotlib.pyplot as plt
 from keras.callbacks import ModelCheckpoint, TensorBoard, Callback
-import time
+from datetime import datetime
 import multiprocessing
 import json
 import logging
 import tensorflow as tf
 from keras.utils import multi_gpu_model
 import configparser
+import time
 
 config = configparser.ConfigParser()
 basepath = os.path.dirname(__file__)
@@ -24,60 +25,38 @@ LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lin
 check = config['LOGGING']['log_to_file']
 if check.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
     logging.basicConfig(level=logging.INFO,
-                    format=LOG_FORMAT, filename=os.path.join(config['LOGGING']['log_file_dir'],
-                                                             config['LOGGING']['log_file_name']))
+                        format=LOG_FORMAT, filename=os.path.join(config['LOGGING']['log_file_dir'],
+                                                                 config['LOGGING']['log_file_name']))
 else:
     logging.basicConfig(level=logging.INFO,
                         format=LOG_FORMAT)
 
 
 class LogEpochStats(Callback):
-    def __init__(self):
+    def __init__(self, steps_per_epoch, logger):
         super(LogEpochStats, self).__init__()
+        self.steps_per_epoch = steps_per_epoch
+        self.logger = logger
 
     def on_epoch_begin(self, epoch, logs=None):
         logs = logs or {}
-        LOGGER.info('Epoch {} started.'.format(epoch+1))
+        self.logger.info('Epoch {} started.'.format(epoch + 1))
 
     def on_batch_end(self, batch, logs=None):
         logs = logs or {}
-        LOGGER.info('Batch {}, Accuracy -> {}, '
-                    'Loss -> {}, '
-                    .format(batch, logs.get('acc'), logs.get('loss')))
+        self.logger.info('Batch {}/{}, \tAccuracy -> {}, \t'
+                    'Loss -> {}'
+                    .format(batch, self.steps_per_epoch, logs.get('acc'), logs.get('loss')))
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        self.logger.info('Epoch {} ended.'.format(epoch + 1))
+        self.logger.info('Train accuracy -> {}, Train Loss -> {}, Validation Accuracy -> {}, Validation loss -> {}'
+                    .format(logs.get('acc'), logs.get('loss'), logs.get('val_acc'), logs.get('val_loss')))
+
 
 
 class CustomModelCheckpoint(Callback):
-    """Save the model after every epoch.
-
-    `filepath` can contain named formatting options,
-    which will be filled the value of `epoch` and
-    keys in `logs` (passed in `on_epoch_end`).
-
-    For example: if `filepath` is `weights.{epoch:02d}-{val_loss:.2f}.hdf5`,
-    then the model checkpoints will be saved with the epoch number and
-    the validation loss in the filename.
-
-    # Arguments
-        filepath: string, path to save the model file.
-        monitor: quantity to monitor.
-        verbose: verbosity mode, 0 or 1.
-        save_best_only: if `save_best_only=True`,
-            the latest best model according to
-            the quantity monitored will not be overwritten.
-        mode: one of {auto, min, max}.
-            If `save_best_only=True`, the decision
-            to overwrite the current save file is made
-            based on either the maximization or the
-            minimization of the monitored quantity. For `val_acc`,
-            this should be `max`, for `val_loss` this should
-            be `min`, etc. In `auto` mode, the direction is
-            automatically inferred from the name of the monitored quantity.
-        save_weights_only: if True, then only the model's weights will be
-            saved (`model.save_weights(filepath)`), else the full model
-            is saved (`model.save(filepath)`).
-        period: Interval (number of epochs) between checkpoints.
-    """
-
     def __init__(self, custom_model, filepath, monitor='val_loss', verbose=0,
                  save_best_only=False, save_weights_only=False,
                  mode='auto', period=1):
@@ -154,55 +133,25 @@ class TransferLearning(object):
     def __init__(self, train_dir, val_dir):
         self.train_dir = train_dir
         self.val_dir = val_dir
-        self.datagen = ImageDataGenerator(rescale=1./255)
+        self.datagen = ImageDataGenerator(rescale=1. / 255)
         self.batch_size = int(config['MODELLING']['batch_size'])
         self.IM_WIDTH = int(config['MODELLING']['im_width'])
         self.IM_HEIGHT = int(config['MODELLING']['im_height'])
         self.epochs = int(config['MODELLING']['epochs'])
-        self.model_driectory = config['MODELLING']['model_directory']
+        self.model_directory = config['MODELLING']['model_directory']
         self.tensorboard_logs_dir = config['MODELLING']['tensorboard_logs_dir']
-        self.model_name = 'tl_inceptionv3.{epoch:02d}-{val_loss:.2f}.hdf5'
+        self.tl_model_name = 'transfer_learning_inceptionv3_epoch_{epoch:02d}_val_loss_{val_loss:.2f}.h5'
+        self.ft_model_name = 'fine_tuning_inceptionv3_epoch_{epoch:02d}_val_loss_{val_loss:.2f}.h5'
         self.tensorboard_logs_name = "tl_inceptionv3_{}".format(time.time())
-        self.cpu_count = int(config['MODELLING']['cpu_count'])      # multiprocessing.cpu_count()
+        self.cpu_count = int(config['MODELLING']['cpu_count'])  # multiprocessing.cpu_count()
         self.FC_SIZE = int(config['MODELLING']['last_layer_fc_size'])
-        # self.fraction_to_unfreeze_while_fine_tuning = 0.4
         self.num_layers_to_freeze_while_fine_tuning = int(config['MODELLING']['num_layers_to_freeze_while_fine_tuning'])
-        self.checkpoint = ModelCheckpoint(filepath=os.path.join(self.model_driectory,
-                                                           self.model_name),
-                                          monitor=config['MODEL_CHECKPOINT']['monitor'],
-                                          save_best_only=True, save_weights_only=True)
-
         self.tensorboard = TensorBoard(
             log_dir=os.path.join(self.tensorboard_logs_dir, self.tensorboard_logs_name))
-        self.custom_logger = LogEpochStats()
         self.num_gpus = int(config['MODELLING']['num_gpus'])
-
-
-    def __unfreeze_layers_in_model(self):
-        # conv_base.trainable = True
-
-        # num_layers = len(conv_base.layers)
-        # NB_IV3_LAYERS_TO_FREEZE = num_layers - int(self.fraction_to_unfreeze_while_fine_tuning * num_layers)
-        LOGGER.info('Number of trainable weights before unfreezing the conv base in model: {}'.format(
-            len(self.model.trainable_weights)))
-
-        for layer in self.conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
-            layer.trainable = False
-        for layer in self.conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
-            layer.trainable = True
-
-        # LOGGER.info('Number of trainable weights after unfreezing the conv base: {}'.format(len(conv_base.trainable_weights)))
-        LOGGER.info('Number of trainable weights after unfreezing the conv base in model: {}'.format(len(self.model.trainable_weights)))
-
-        # return model
-
-
-    def __freeze_conv_base(self, model, conv_base):
-        LOGGER.info('Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
-        for layer in conv_base.layers:
-            layer.trainable = False
-        LOGGER.info('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
-        return model, conv_base
+        self.tl_lr = float(config['MODELLING']['transfer_learning_learning_rate'])
+        self.ft_lr = float(config['MODELLING']['fine_tuning_learning_rate'])
+        self.training_essentials_folder = config['MODELLING']['training_essentials_folder']
 
 
     def __count_number_of_files(self, root_directory):
@@ -214,19 +163,56 @@ class TransferLearning(object):
 
     def __training_essentials(self):
         self.NUM_CLASSES = len(os.listdir(self.train_dir))
+        LOGGER.info('Number of classes -> {}'.format(self.NUM_CLASSES))
+
         self.NUM_TRAINING_SAMPLES = self.__count_number_of_files(self.train_dir)
+        LOGGER.info('Number of training samples -> {}'.format(self.NUM_TRAINING_SAMPLES))
+
         self.NUM_VALIDATION_SAMPLES = self.__count_number_of_files(self.val_dir)
-        if not os.path.isdir(self.model_driectory):
-            os.makedirs(self.model_driectory)
+        LOGGER.info('Number of Validation samples -> {}'.format(self.NUM_VALIDATION_SAMPLES))
+
+        if not os.path.isdir(self.model_directory):
+            os.makedirs(self.model_directory)
+        if not os.path.isdir(self.tensorboard_logs_dir):
+            os.makedirs(self.tensorboard_logs_dir)
+
         self.validation_steps = self.NUM_VALIDATION_SAMPLES // self.batch_size
-        self.steps_per_epoch = self.NUM_TRAINING_SAMPLES // self.batch_size # calculate this based on your number of training samples,
+        self.steps_per_epoch = self.NUM_TRAINING_SAMPLES // self.batch_size  # calculate this based on your number of training samples,
         # batch size and amount of augmented sample you want to give (it can also be num_train_samples//batch-size)
+        LOGGER.info('Steps per epoch -> {}'.format(self.steps_per_epoch))
+
+        LOGGER.info('Setting up custom logger to log epoch stats.')
+        self.custom_logger = LogEpochStats(steps_per_epoch=self.steps_per_epoch,
+                                           logger=LOGGER)
+
+
+
+    def __unfreeze_layers_in_model(self):
+        LOGGER.info('Number of trainable weights before unfreezing the conv base in model: {}'.format(
+            len(self.model.trainable_weights)))
+
+        for layer in self.conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
+            layer.trainable = False
+        for layer in self.conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
+            layer.trainable = True
+
+        LOGGER.info('Number of trainable weights after unfreezing the conv base in model: {}'.format(
+            len(self.model.trainable_weights)))
+
+
+    def __freeze_conv_base(self, model, conv_base):
+        LOGGER.info(
+            'Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
+        for layer in conv_base.layers:
+            layer.trainable = False
+        LOGGER.info('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
+        return model, conv_base
 
 
     def __create_conv_base(self, transfer_learn=True):
         conv_base = InceptionV3(weights=None,
-                                    include_top=False,
-                                    input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
+                                include_top=False,
+                                input_shape=(self.IM_HEIGHT, self.IM_WIDTH, 3))
         # self.conv_base.summary()
         if transfer_learn:
             LOGGER.info('Loading InceptionV3 weights for transfer learning')
@@ -246,128 +232,136 @@ class TransferLearning(object):
 
         test_datagen = ImageDataGenerator(rescale=1. / 255)
 
+        LOGGER.info('Creating Training Generator.')
         self.train_generator = train_datagen.flow_from_directory(self.train_dir,
                                                                  target_size=(self.IM_WIDTH, self.IM_HEIGHT),
                                                                  batch_size=self.batch_size)
 
+        LOGGER.info('Creating validation Generator.')
         self.validation_generator = test_datagen.flow_from_directory(self.val_dir,
                                                                      target_size=(self.IM_HEIGHT, self.IM_WIDTH),
                                                                      batch_size=self.batch_size)
 
         LOGGER.info('Saving train generator class indices...')
-        with open('train_class_indices.json', 'w') as fp:
+        with open(os.path.join(self.training_essentials_folder, 'class_indices.json'), 'w') as fp:
             json.dump(self.train_generator.class_indices, fp)
 
-        LOGGER.info('Saving val generator class indices...')
-        with open('val_class_indices.json', 'w') as fp:
-            json.dump(self.validation_generator.class_indices, fp)
 
+    def __transfer_learn_on_model(self):
+        learning_rate = self.tl_lr
 
-
-    def __train_model(self, fine_tuning=False):
-        if fine_tuning:
-            learning_rate = 0.00001
-        else:
-            learning_rate = 0.0001
-
-        self.model.compile(loss='categorical_crossentropy',
-                           optimizer=optimizers.RMSprop(lr=learning_rate),
+        LOGGER.info('Compiling Base Model for transfer learning.')
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
                            metrics=['acc'])
 
-        if fine_tuning:
-            model_as_json = self.model.to_json()
-            with open('self_model_after_fine_tuning_before_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
-        else:
-            model_as_json = self.model.to_json()
-            with open('self_model_after_transfer_before_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
+        LOGGER.info('Saving Model Architecture as JSON.')
+        model_as_json = self.model.to_json()
+        with open(os.path.join(self.training_essentials_folder, 'transfer_learning_model_architecture.json'), 'w') as f:
+            f.write(model_as_json)
 
         history = self.model.fit_generator(self.train_generator,
-                                       steps_per_epoch=self.steps_per_epoch,
-                                       epochs=self.epochs,
-                                       validation_data=self.validation_generator,
-                                       validation_steps=self.validation_steps,
-                                       callbacks=[self.tensorboard, self.custom_logger, CustomModelCheckpoint(self.model, self.model_name)],
-                                       workers=self.cpu_count)
+                                          steps_per_epoch=self.steps_per_epoch,
+                                          epochs=self.epochs,
+                                          validation_data=self.validation_generator,
+                                          validation_steps=self.validation_steps,
+                                          callbacks=[self.tensorboard, self.custom_logger,
+                                                     CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
+                                                                                                    self.tl_model_name))],
+                                          workers=self.cpu_count)
 
-        # self.plot(history)
-        if fine_tuning:
-            self.model.save('self_model_after_fine_tuning_after_fit_generator.h5')
-            self.model.save_weights(
-                os.path.join(self.model_driectory, 'self_model_weights_after_fine_tuning_after_fit_generator.h5'))
-        else:
-            self.model.save('self_model_after_transfer_learning_after_fit_generator.h5')
-            self.model.save_weights(
-                os.path.join(self.model_driectory, 'self_model_weights_after_transfer_learning_after_fit_generator.h5'))
-        # return model
+        LOGGER.info('Model fitting completed for transfer learning.')
+        LOGGER.info('Saving model weights.')
+        self.model.save_weights(
+            os.path.join(self.model_directory, 'transfer_learning_model_weights.h5'))
 
 
-    def __train_parallel_model(self, model, fine_tuning=False):
-        if fine_tuning:
-            learning_rate = 0.00001
-        else:
-            learning_rate = 0.0001
+    def __fine_tune_on_model(self):
+        learning_rate = self.ft_lr
 
-        model.compile(loss='categorical_crossentropy',
-                           optimizer=optimizers.RMSprop(lr=learning_rate),
+        LOGGER.info('Compiling Base Model for fine tuning.')
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
                            metrics=['acc'])
 
-        if fine_tuning:
-            # model.save('model_after_fine_tuning_before_fit_generator.h5')
-            # model_as_json = model.to_json()
-            # with open('fine_tune_model_before_fit_generator.json', 'w') as f:
-            #     f.write(model_as_json)
-            self.model.save('self_model_after_fine_tuning_before_fit_generator.h5')
-            model_as_json = self.model.to_json()
-            with open('self_model_after_fine_tuning_before_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
-        else:
-            # model.save('model_after_transfer_learning_before_fit_generator.h5')
-            # model_as_json = model.to_json()
-            # with open('transfer_learning_model_before_fit_generator.json', 'w') as f:
-            #     f.write(model_as_json)
-            self.model.save('self_model_after_transfer_learning_before_fit_generator.h5')
-            model_as_json = self.model.to_json()
-            with open('self_model_after_transfer_before_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
+        LOGGER.info('Saving Model Architecture as JSON.')
+        model_as_json = self.model.to_json()
+        with open(os.path.join(self.training_essentials_folder, 'fine_tuning_model_architecture.json'), 'w') as f:
+            f.write(model_as_json)
+
+        history = self.model.fit_generator(self.train_generator,
+                                          steps_per_epoch=self.steps_per_epoch,
+                                          epochs=self.epochs,
+                                          validation_data=self.validation_generator,
+                                          validation_steps=self.validation_steps,
+                                          callbacks=[self.tensorboard, self.custom_logger,
+                                                     CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
+                                                                                                    self.tl_model_name))],
+                                          workers=self.cpu_count)
+
+        LOGGER.info('Model fitting completed for fine tuning.')
+        LOGGER.info('Saving model weights.')
+        self.model.save_weights(
+            os.path.join(self.model_directory, 'fine_tuning_model_weights.h5'))
+
+
+    def __transfer_learn_on_parallel_model(self, model):
+        learning_rate = self.tl_lr
+
+        LOGGER.info('Compiling Base Model for transfer learning.')
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+                           metrics=['acc'])
+
+        LOGGER.info('Compiling Parallel Model for transfer learning.')
+        model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate), metrics=['acc'])
+
+        LOGGER.info('Saving Model Architecture as JSON.')
+        model_as_json = self.model.to_json()
+        with open(os.path.join(self.training_essentials_folder, 'transfer_learning_model_architecture.json'), 'w') as f:
+            f.write(model_as_json)
 
         history = model.fit_generator(self.train_generator,
-                                       steps_per_epoch=self.steps_per_epoch,
-                                       epochs=self.epochs,
-                                       validation_data=self.validation_generator,
-                                       validation_steps=self.validation_steps,
-                                       callbacks=[self.checkpoint, self.tensorboard, self.custom_logger, CustomModelCheckpoint(self.model)],
-                                       workers=self.cpu_count)
+                                      steps_per_epoch=self.steps_per_epoch,
+                                      epochs=self.epochs,
+                                      validation_data=self.validation_generator,
+                                      validation_steps=self.validation_steps,
+                                      callbacks=[self.tensorboard, self.custom_logger,
+                                                 CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
+                                                                                                self.tl_model_name))],
+                                      workers=self.cpu_count)
+        LOGGER.info('Model fitting completed for transfer learning.')
+        LOGGER.info('Saving model weights.')
+        self.model.save_weights(
+            os.path.join(self.model_directory, 'transfer_learning_model_weights.h5'))
 
-        # self.plot(history)
-        if fine_tuning:
-            # model.save('model_after_fine_tuning_after_fit_generator.h5')
-            # model_as_json = model.to_json()
-            # with open('model_after_fine_tuning_after_fit_generator.json', 'w') as f:
-            #     f.write(model_as_json)
-            # model.save_weights(os.path.join(self.model_driectory ,'model_weights_after_fine_tuning_after_fit_generator.h5'))
 
-            self.model.save('self_model_after_fine_tuning_after_fit_generator.h5')
-            model_as_json = self.model.to_json()
-            with open('self_model_after_fine_tuning_after_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
-            self.model.save_weights(
-                os.path.join(self.model_driectory, 'self_model_weights_after_fine_tuning_after_fit_generator.h5'))
-        else:
-            # model.save('model_after_transfer_learning_after_fit_generator.h5')
-            # model_as_json = model.to_json()
-            # with open('model_after_transfer_after_fit_generator.json', 'w') as f:
-            #     f.write(model_as_json)
-            # model.save_weights(os.path.join(self.model_driectory, 'model_weights_after_transfer_learning_after_fit_generator.h5'))
+    def __fine_tune_on_parallel_model(self, model):
+        learning_rate = self.ft_lr
 
-            self.model.save('self_model_after_transfer_learning_after_fit_generator.h5')
-            model_as_json = self.model.to_json()
-            with open('self_model_after_transfer_after_fit_generator.json', 'w') as f:
-                f.write(model_as_json)
-            self.model.save_weights(
-                os.path.join(self.model_driectory, 'self_model_weights_after_transfer_learning_after_fit_generator.h5'))
-        # return model
+        LOGGER.info('Compiling Base Model for fine tuning.')
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+                           metrics=['acc'])
+
+        LOGGER.info('Compiling Parallel Model for fine tuning.')
+        model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate), metrics=['acc'])
+
+        LOGGER.info('Saving Model Architecture as JSON.')
+        model_as_json = self.model.to_json()
+        with open(os.path.join(self.training_essentials_folder, 'fine_tuning_model_architecture.json'), 'w') as f:
+            f.write(model_as_json)
+
+        history = model.fit_generator(self.train_generator,
+                                      steps_per_epoch=self.steps_per_epoch,
+                                      epochs=self.epochs,
+                                      validation_data=self.validation_generator,
+                                      validation_steps=self.validation_steps,
+                                      callbacks=[self.tensorboard, self.custom_logger,
+                                                 CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
+                                                                                                self.tl_model_name))],
+                                      workers=self.cpu_count)
+
+        LOGGER.info('Model fitting completed for fine tuning.')
+        LOGGER.info('Saving model weights.')
+        self.model.save_weights(
+            os.path.join(self.model_directory, 'fine_tuning_model_weights.h5'))
 
 
     def __create_model(self, conv_base):
@@ -377,10 +371,6 @@ class TransferLearning(object):
         model.add(layers.Dense(self.FC_SIZE, activation='relu'))
         model.add(layers.Dense(self.NUM_CLASSES, activation='softmax'))
         model.summary()
-        check_load_weights = config['MODELLING']['load_weights_of_previous_model']
-        if check_load_weights.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
-            LOGGER.info('Loading weights of previous model...')
-            model.load_weights(config['MODELLING']['weights_of_previous_model'])
         return model
 
 
@@ -390,7 +380,7 @@ class TransferLearning(object):
         loss = history.history['loss']
         val_loss = history.history['val_loss']
 
-        epochs = range(1, len(acc)+1)
+        epochs = range(1, len(acc) + 1)
 
         plt.plot(epochs, acc, 'g', label='Training acc')
         plt.plot(epochs, val_acc, 'b', label='validation acc')
@@ -430,23 +420,23 @@ class TransferLearning(object):
         if self.num_gpus <= 1:
             self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
             # transfer learn with frozen conv base
-            self.__train_model()
+            self.__transfer_learn_on_model()
             if check_tl:
                 # unfreeze conv base layers
                 self.__unfreeze_layers_in_model()
                 # # fine tune with unfrozen layers
-                self.__train_model(fine_tuning=True)
+                self.__fine_tune_on_model()
         else:
             with tf.device("/cpu:0"):
                 self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
             parallel_model = multi_gpu_model(self.model, gpus=self.num_gpus)
             # transfer learn with frozen conv base
-            parallel_model = self.__train_parallel_model(parallel_model)
+            self.__transfer_learn_on_parallel_model(parallel_model)
             if check_tl:
                 # unfreeze conv base layers
-                parallel_model = self.__unfreeze_layers_in_model(parallel_model, self.conv_base)
+                self.__unfreeze_layers_in_model()
                 # # fine tune with unfrozen layers
-                parallel_model = self.__train_model(parallel_model, fine_tuning=True)
+                self.__fine_tune_on_parallel_model(parallel_model)
 
 
 
