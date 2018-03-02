@@ -302,7 +302,7 @@ class TransferLearning(object):
                                           validation_steps=self.validation_steps,
                                           callbacks=[self.tensorboard, self.custom_logger,
                                                      CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
-                                                                                                    self.tl_model_name))],
+                                                                                                    self.ft_model_name))],
                                           workers=self.cpu_count)
 
         LOGGER.info('Model fitting completed for fine tuning.')
@@ -369,7 +369,7 @@ class TransferLearning(object):
                                       validation_steps=self.validation_steps,
                                       callbacks=[self.tensorboard, self.custom_logger,
                                                  CustomModelCheckpoint(self.model, os.path.join(self.model_directory,
-                                                                                                self.tl_model_name))],
+                                                                                                self.ft_model_name))],
                                       workers=self.cpu_count)
 
         LOGGER.info('Model fitting completed for fine tuning.')
