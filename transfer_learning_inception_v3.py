@@ -14,6 +14,7 @@ import tensorflow as tf
 from keras.utils import multi_gpu_model
 import configparser
 import time
+from keras.models import load_model
 
 config = configparser.ConfigParser()
 basepath = os.path.dirname(__file__)
@@ -274,6 +275,8 @@ class TransferLearning(object):
         LOGGER.info('Saving model weights.')
         self.model.save_weights(
             os.path.join(self.model_directory, 'transfer_learning_model_weights.h5'))
+        LOGGER.info('Saving model.')
+        self.model.save(os.path.join(self.model_directory, 'transfer_learning_model.h5'))
 
 
     def __fine_tune_on_model(self):
@@ -302,6 +305,9 @@ class TransferLearning(object):
         LOGGER.info('Saving model weights.')
         self.model.save_weights(
             os.path.join(self.model_directory, 'fine_tuning_model_weights.h5'))
+        LOGGER.info('Saving model.')
+        self.model.save(os.path.join(self.model_directory, 'fine_tuning_model.h5'))
+
 
 
     def __transfer_learn_on_parallel_model(self, model):
@@ -332,6 +338,9 @@ class TransferLearning(object):
         LOGGER.info('Saving model weights.')
         self.model.save_weights(
             os.path.join(self.model_directory, 'transfer_learning_model_weights.h5'))
+        LOGGER.info('Saving model.')
+        self.model.save(os.path.join(self.model_directory, 'transfer_learning_model.h5'))
+
 
 
     def __fine_tune_on_parallel_model(self, model):
@@ -363,6 +372,8 @@ class TransferLearning(object):
         LOGGER.info('Saving model weights.')
         self.model.save_weights(
             os.path.join(self.model_directory, 'fine_tuning_model_weights.h5'))
+        LOGGER.info('Saving model.')
+        self.model.save(os.path.join(self.model_directory, 'fine_tuning_model.h5'))
 
 
     def __create_model(self, conv_base):
@@ -404,7 +415,9 @@ class TransferLearning(object):
         # create model with conv_base
         model = self.__create_model(conv_base)
         # freeze conv base layers
-        model, conv_base = self.__freeze_conv_base(model, conv_base)
+        if transfer_learn:
+            LOGGER.info('Freezing Conv Base for Transfer Learning.')
+            model, conv_base = self.__freeze_conv_base(model, conv_base)
         return model, conv_base
 
 
@@ -413,13 +426,27 @@ class TransferLearning(object):
         LOGGER.info('Calulating num_classes, samples, creating model directory, etc...')
         self.__training_essentials()
         self.__create_generators()
+
+        train_earlier_model = config['MODELLING']['load_weights_of_previous_model']
+        if train_earlier_model.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
+            train_earlier_model = True
+        else:
+            train_earlier_model = False
+
+
         check_tl = config['MODELLING']['train_from_scratch']
         if check_tl.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
             check_tl = False
         else:
             check_tl = True
+
+
         if self.num_gpus <= 1:
-            self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
+            if train_earlier_model:
+                check_tl = False
+                self.model = load_model(config['MODELLING']['previous_model_path'])
+            else:
+                self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
             # transfer learn with frozen conv base
             self.__transfer_learn_on_model()
             if check_tl:
@@ -429,7 +456,12 @@ class TransferLearning(object):
                 self.__fine_tune_on_model()
         else:
             with tf.device("/cpu:0"):
-                self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
+                # self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
+                if train_earlier_model:
+                    check_tl = False
+                    self.model = load_model(config['MODELLING']['previous_model_path'])
+                else:
+                    self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
             parallel_model = multi_gpu_model(self.model, gpus=self.num_gpus)
             # transfer learn with frozen conv base
             self.__transfer_learn_on_parallel_model(parallel_model)
