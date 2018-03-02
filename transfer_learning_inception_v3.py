@@ -25,6 +25,8 @@ LOG_FORMAT = ('%(levelname) -10s %(asctime)s %(name) -10s %(funcName) -15s %(lin
 
 check = config['LOGGING']['log_to_file']
 if check.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', 'uh-huh']:
+    if not os.path.isdir(config['LOGGING']['log_file_dir']):
+        os.makedirs(config['LOGGING']['log_file_dir'])
     logging.basicConfig(level=logging.INFO,
                         format=LOG_FORMAT, filename=os.path.join(config['LOGGING']['log_file_dir'],
                                                                  config['LOGGING']['log_file_name']))
@@ -177,6 +179,8 @@ class TransferLearning(object):
             os.makedirs(self.model_directory)
         if not os.path.isdir(self.tensorboard_logs_dir):
             os.makedirs(self.tensorboard_logs_dir)
+        if not os.path.isdir(self.training_essentials_folder):
+            os.makedirs(self.training_essentials_folder)
 
         self.validation_steps = self.NUM_VALIDATION_SAMPLES // self.batch_size
         self.steps_per_epoch = self.NUM_TRAINING_SAMPLES // self.batch_size  # calculate this based on your number of training samples,
