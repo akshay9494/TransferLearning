@@ -161,7 +161,7 @@ class TransferLearning(object):
         learning_rate = self.tl_lr
 
         LOGGER.info('Compiling Base Model for transfer learning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
                            metrics=['acc'])
 
         LOGGER.info('Saving Model Architecture as JSON.')
@@ -191,7 +191,7 @@ class TransferLearning(object):
         learning_rate = self.ft_lr
 
         LOGGER.info('Compiling Base Model for fine tuning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
                            metrics=['acc'])
 
         LOGGER.info('Saving Model Architecture as JSON.')
@@ -222,11 +222,11 @@ class TransferLearning(object):
         learning_rate = self.tl_lr
 
         LOGGER.info('Compiling Base Model for transfer learning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
                            metrics=['acc'])
 
         LOGGER.info('Compiling Parallel Model for transfer learning.')
-        model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate), metrics=['acc'])
+        model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate), metrics=['acc'])
 
         LOGGER.info('Saving Model Architecture as JSON.')
         model_as_json = self.model.to_json()
@@ -255,11 +255,11 @@ class TransferLearning(object):
         learning_rate = self.ft_lr
 
         LOGGER.info('Compiling Base Model for fine tuning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate),
+        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
                            metrics=['acc'])
 
         LOGGER.info('Compiling Parallel Model for fine tuning.')
-        model.compile(loss='categorical_crossentropy', optimizer=optimizers.RMSprop(lr=learning_rate), metrics=['acc'])
+        model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate), metrics=['acc'])
 
         LOGGER.info('Saving Model Architecture as JSON.')
         model_as_json = self.model.to_json()
