@@ -8,13 +8,14 @@ basepath = os.path.dirname(__file__)
 config = configparser.ConfigParser()
 
 config['LOGGING'] = {}
-config['LOGGING']['log_to_file'] = "False"
+config['LOGGING']['log_to_file'] = "True"
 config['LOGGING']['log_file_dir'] = 'D:\\Akshay\'s Git\\TransferLearning\\logs'
 config['LOGGING']['log_file_name'] = 'Transfer_Learning_' + socket.gethostname() + '_' + str(uuid.uuid4()) + '.log'
 
 config['MODELLING'] = {}
 config['MODELLING']['train_from_scratch'] = "True"
-config['MODELLING']['load_weights_of_previous_model'] = "True"
+config['MODELLING']['load_weights_of_previous_model'] = "False"
+config['MODELLING']['previous_model_stop_position'] = "transfer_learning"       # provide "transfer_learning", "fine_tuning" or "training_from_scratch"
 config['MODELLING']['previous_model_path'] = "D:\\Akshay's Git\\TransferLearning\\models\\fine_tuning_model_weights_retrain_try.h5"
 config['MODELLING']['batch_size'] = "64"
 config['MODELLING']['im_width'] = "299"

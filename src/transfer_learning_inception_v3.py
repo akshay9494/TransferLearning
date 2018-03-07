@@ -1,13 +1,11 @@
 import os
-import numpy as np
 from keras.preprocessing.image import ImageDataGenerator
 from keras.applications.inception_v3 import InceptionV3
 from keras import models, layers, optimizers
 import glob
 import matplotlib.pyplot as plt
-from keras.callbacks import ModelCheckpoint, TensorBoard, Callback
-from datetime import datetime
-import multiprocessing
+from keras.callbacks import TensorBoard
+from custom_callbacks import LogEpochStats, CustomModelCheckpoint
 import json
 import logging
 import tensorflow as tf
@@ -15,6 +13,7 @@ from keras.utils import multi_gpu_model
 import configparser
 import time
 from keras.models import load_model
+import sys
 
 config = configparser.ConfigParser()
 basepath = os.path.dirname(__file__)
@@ -33,102 +32,6 @@ if check.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'certainly', '
 else:
     logging.basicConfig(level=logging.INFO,
                         format=LOG_FORMAT)
-
-
-class LogEpochStats(Callback):
-    def __init__(self, steps_per_epoch, logger):
-        super(LogEpochStats, self).__init__()
-        self.steps_per_epoch = steps_per_epoch
-        self.logger = logger
-
-    def on_epoch_begin(self, epoch, logs=None):
-        logs = logs or {}
-        self.logger.info('Epoch {} started.'.format(epoch + 1))
-
-    def on_batch_end(self, batch, logs=None):
-        logs = logs or {}
-        self.logger.info('Batch {}/{}, \tAccuracy -> {}, \t'
-                    'Loss -> {}'
-                    .format(batch, self.steps_per_epoch, logs.get('acc'), logs.get('loss')))
-
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        self.logger.info('Epoch {} ended.'.format(epoch + 1))
-        self.logger.info('Train accuracy -> {}, Train Loss -> {}, Validation Accuracy -> {}, Validation loss -> {}'
-                    .format(logs.get('acc'), logs.get('loss'), logs.get('val_acc'), logs.get('val_loss')))
-
-
-
-class CustomModelCheckpoint(Callback):
-    def __init__(self, custom_model, filepath, monitor='val_loss', verbose=0,
-                 save_best_only=False, save_weights_only=False,
-                 mode='auto', period=1):
-        super(CustomModelCheckpoint, self).__init__()
-        self.monitor = monitor
-        self.verbose = verbose
-        self.filepath = filepath
-        self.save_best_only = save_best_only
-        self.save_weights_only = save_weights_only
-        self.period = period
-        self.epochs_since_last_save = 0
-        self.custom_model = custom_model
-
-        if mode not in ['auto', 'min', 'max']:
-            # warnings.warn('ModelCheckpoint mode %s is unknown, '
-            #               'fallback to auto mode.' % (mode),
-            #               RuntimeWarning)
-            mode = 'auto'
-
-        if mode == 'min':
-            self.monitor_op = np.less
-            self.best = np.Inf
-        elif mode == 'max':
-            self.monitor_op = np.greater
-            self.best = -np.Inf
-        else:
-            if 'acc' in self.monitor or self.monitor.startswith('fmeasure'):
-                self.monitor_op = np.greater
-                self.best = -np.Inf
-            else:
-                self.monitor_op = np.less
-                self.best = np.Inf
-
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        self.epochs_since_last_save += 1
-        if self.epochs_since_last_save >= self.period:
-            self.epochs_since_last_save = 0
-            filepath = self.filepath.format(epoch=epoch + 1, **logs)
-            if self.save_best_only:
-                current = logs.get(self.monitor)
-                if current is None:
-                    pass
-                    # warnings.warn('Can save best model only with %s available, '
-                    #               'skipping.' % (self.monitor), RuntimeWarning)
-                else:
-                    if self.monitor_op(current, self.best):
-                        if self.verbose > 0:
-                            print('Epoch %05d: %s improved from %0.5f to %0.5f,'
-                                  ' saving model to %s'
-                                  % (epoch + 1, self.monitor, self.best,
-                                     current, filepath))
-                        self.best = current
-                        if self.save_weights_only:
-                            self.custom_model.save_weights(filepath, overwrite=True)
-                        else:
-                            self.custom_model.save(filepath, overwrite=True)
-                    else:
-                        if self.verbose > 0:
-                            print('Epoch %05d: %s did not improve' %
-                                  (epoch + 1, self.monitor))
-            else:
-                if self.verbose > 0:
-                    print('Epoch %05d: saving model to %s' % (epoch + 1, filepath))
-                if self.save_weights_only:
-                    self.custom_model.save_weights(filepath, overwrite=True)
-                else:
-                    self.custom_model.save(filepath, overwrite=True)
-
 
 
 class TransferLearning(object):
@@ -197,22 +100,23 @@ class TransferLearning(object):
         LOGGER.info('Number of trainable weights before unfreezing the conv base in model: {}'.format(
             len(self.model.trainable_weights)))
 
-        for layer in self.conv_base.layers[:self.num_layers_to_freeze_while_fine_tuning]:
+        for layer in self.model.layers[0].layers[:self.num_layers_to_freeze_while_fine_tuning]:
             layer.trainable = False
-        for layer in self.conv_base.layers[self.num_layers_to_freeze_while_fine_tuning:]:
+        for layer in self.model.layers[0].layers[self.num_layers_to_freeze_while_fine_tuning:]:
             layer.trainable = True
 
         LOGGER.info('Number of trainable weights after unfreezing the conv base in model: {}'.format(
             len(self.model.trainable_weights)))
 
 
-    def __freeze_conv_base(self, model, conv_base):
+    def __freeze_conv_base(self, model):
         LOGGER.info(
             'Number of trainable weights before freezing the conv base: {}'.format(len(model.trainable_weights)))
-        for layer in conv_base.layers:
+
+        for layer in model.layers[0].layers:
             layer.trainable = False
         LOGGER.info('Number of trainable weights after freezing the conv base: {}'.format(len(model.trainable_weights)))
-        return model, conv_base
+        return model
 
 
     def __create_conv_base(self, transfer_learn=True):
@@ -421,8 +325,8 @@ class TransferLearning(object):
         # freeze conv base layers
         if transfer_learn:
             LOGGER.info('Freezing Conv Base for Transfer Learning.')
-            model, conv_base = self.__freeze_conv_base(model, conv_base)
-        return model, conv_base
+            model = self.__freeze_conv_base(model)
+        return model
 
 
     def begin_training(self):
@@ -444,31 +348,73 @@ class TransferLearning(object):
         else:
             check_tl = True
 
+        only_fine_tune = False
 
         if self.num_gpus <= 1:
             if train_earlier_model:
-                check_tl = False
+                LOGGER.info('Loading earlier model.')
                 self.model = load_model(config['MODELLING']['previous_model_path'])
+                stop_position = config['MODELLING']['previous_model_stop_position']
+                LOGGER.info('Previous model was stopped at {}'.format(stop_position))
+                if stop_position == 'transfer_learning':
+                    # TODO:-
+                    # continue transfer learning,
+                    # then unfreeze layers
+                    # then fine tune
+                    check_tl = True
+                elif stop_position == 'fine_tuning':
+                    # TODO:-
+                    # do not transfer learn,
+                    # unfreeze layers with respect to the config
+                    # start fine tuning
+                    only_fine_tune = True
+                    check_tl = True
+                else:
+                    # TODO:-
+                    # continue transfer learning,
+                    # do not fine tune
+                    check_tl = False
             else:
-                self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
+                self.model = self.__build_model(transfer_learn=check_tl)
             # transfer learn with frozen conv base
-            self.__transfer_learn_on_model()
+            if not only_fine_tune:
+                self.__transfer_learn_on_model()
             if check_tl:
                 # unfreeze conv base layers
                 self.__unfreeze_layers_in_model()
-                # # fine tune with unfrozen layers
+                # fine tune with unfrozen layers
                 self.__fine_tune_on_model()
         else:
             with tf.device("/cpu:0"):
                 # self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
                 if train_earlier_model:
-                    check_tl = False
+                    LOGGER.info('Loading earlier model.')
                     self.model = load_model(config['MODELLING']['previous_model_path'])
+                    stop_position = config['MODELLING']['previous_model_stop_position']
+                    LOGGER.info('Previous model was stopped at {}'.format(stop_position))
+                    if stop_position == 'transfer_learning':
+                        # TODO:-
+                        # continue transfer learning,
+                        # then unfreeze layers
+                        # then fine tune
+                        check_tl = True
+                    elif stop_position == 'fine_tuning':
+                        # TODO:-
+                        # do not transfer learn,
+                        # unfreeze layers with respect to the config
+                        # start fine tuning
+                        only_fine_tune = True
+                        check_tl = True
+                    else:
+                        # continue transfer learning,
+                        # do not fine tune
+                        check_tl = False
                 else:
-                    self.model, self.conv_base = self.__build_model(transfer_learn=check_tl)
+                    self.model = self.__build_model(transfer_learn=check_tl)
             parallel_model = multi_gpu_model(self.model, gpus=self.num_gpus)
             # transfer learn with frozen conv base
-            self.__transfer_learn_on_parallel_model(parallel_model)
+            if not only_fine_tune:
+                self.__transfer_learn_on_parallel_model(parallel_model)
             if check_tl:
                 # unfreeze conv base layers
                 self.__unfreeze_layers_in_model()
