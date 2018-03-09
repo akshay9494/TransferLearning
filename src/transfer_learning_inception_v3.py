@@ -221,10 +221,6 @@ class TransferLearning(object):
     def __transfer_learn_on_parallel_model(self, model):
         learning_rate = self.tl_lr
 
-        LOGGER.info('Compiling Base Model for transfer learning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
-                           metrics=['acc'])
-
         LOGGER.info('Compiling Parallel Model for transfer learning.')
         model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate), metrics=['acc'])
 
@@ -253,10 +249,6 @@ class TransferLearning(object):
 
     def __fine_tune_on_parallel_model(self, model):
         learning_rate = self.ft_lr
-
-        LOGGER.info('Compiling Base Model for fine tuning.')
-        self.model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate),
-                           metrics=['acc'])
 
         LOGGER.info('Compiling Parallel Model for fine tuning.')
         model.compile(loss='categorical_crossentropy', optimizer=optimizers.Adam(lr=learning_rate), metrics=['acc'])
